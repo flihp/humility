@@ -79,15 +79,15 @@ struct HiffyArgs {
     call: Option<String>,
 
     /// input for an operation that takes a lease
-    #[clap(long, short, requires = "call", conflicts_with = "num")]
+    #[clap(long, short, requires = "call")]
     input: Option<String>,
 
     /// number of bytes to return, when a function has a write-only lease
-    #[clap(long, short, requires = "call", conflicts_with = "input")]
+    #[clap(long, short, requires = "call")]
     num: Option<usize>,
 
     /// output for an operation that writes to a lease
-    #[clap(long, short, requires = "call", conflicts_with = "input")]
+    #[clap(long, short, requires = "call")]
     output: Option<String>,
 
     /// print returned data in hex
@@ -199,12 +199,24 @@ pub fn hiffy_list(hubris: &HubrisArchive, filter: Vec<String>) -> Result<()> {
 }
 
 fn hiffy(context: &mut ExecutionContext) -> Result<()> {
+    use std::io::Write;
+
+    println!("cmd hiffy main");
+    std::io::stdout().flush()?;
     let core = &mut **context.core.as_mut().unwrap();
     let Subcommand::Other(subargs) = context.cli.cmd.as_ref().unwrap();
+    println!("after subargs");
+    std::io::stdout().flush()?;
     let hubris = context.archive.as_ref().unwrap();
 
-    let subargs = HiffyArgs::try_parse_from(subargs)?;
+    println!("before HiffyArgs from subargs");
+    std::io::stdout().flush()?;
 
+    let subargs = HiffyArgs::try_parse_from(subargs)?;
+    println!("after HiffyArgs from subargs: {:?}", subargs);
+
+    println!("before subargs.list");
+    std::io::stdout().flush()?;
     if subargs.list {
         hiffy_list(hubris, subargs.filter)?;
         return Ok(());
@@ -223,7 +235,7 @@ fn hiffy(context: &mut ExecutionContext) -> Result<()> {
             }
         );
     }
-
+    println!("after subargs.list");
     //
     // Before we create our HiffyContext, check to see if this is a call and
     // we're on a dump; running call on a dump always fails (obviously?), but
@@ -238,6 +250,8 @@ fn hiffy(context: &mut ExecutionContext) -> Result<()> {
     }
 
     let mut context = HiffyContext::new(hubris, core, subargs.timeout)?;
+
+    println!("Context::new");
 
     if let Some(call) = subargs.call {
         let func: Vec<&str> = call.split('.').collect();
@@ -272,21 +286,33 @@ fn hiffy(context: &mut ExecutionContext) -> Result<()> {
         // Very special-case handling: if someone didn't specify `--input`, but
         // is piping data into the `humility` command, then we use `stdin` as
         // the input source.
+        //
         let input = if let Some(input) = subargs.input {
+            // got --input from command line ... it's a file name so read it
+            println!("input is a file");
             Some(std::fs::read(input)?)
         } else if op.operation.leases.len() == 1
             && op.operation.leases[0].read
             && !op.operation.leases[0].write
             && atty::isnt(atty::Stream::Stdin)
         {
+            // operation has one lease
+            // first operation lease is read
+            // first operation lease is not write
+            // NOTE: get better idea of how the order is determined (order from idl?)
+            // stdin is not a tty
+            println!("first lease is input / read");
             let mut v = vec![];
             std::io::stdin().read_to_end(&mut v)?;
             Some(v)
         } else {
+            // otherwise just call it null
+            println!("got unexpexted operation lease combo so you get None!");
             None
         };
 
         let (return_code, data) = if let Some(input) = input {
+            println!("input is some");
             (
                 hiffy_call(
                     hubris,
@@ -299,6 +325,7 @@ fn hiffy(context: &mut ExecutionContext) -> Result<()> {
                 None,
             )
         } else if let Some(read_size) = subargs.num {
+            println!("subargs.num is {}", read_size);
             let mut read = vec![0u8; read_size];
             let r = hiffy_call(
                 hubris,
@@ -332,6 +359,8 @@ fn hiffy(context: &mut ExecutionContext) -> Result<()> {
     if !subargs.listfuncs {
         bail!("expected one of -l, -L, or -c");
     }
+
+    println!("subargs.listfuncs");
 
     let funcs = context.functions();
     let mut byid: Vec<Option<(&String, &HiffyFunction)>> = vec![];

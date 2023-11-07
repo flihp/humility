@@ -779,6 +779,20 @@ impl<'a> HiffyContext<'a> {
 
         ops.push(push(payload.len() as u32));
         ops.push(push(op.reply_size()? as u32));
+        // this is the size of a single lease
+        // if we need to provide > 1 do we just push the size of each?
+        // does order matter (it must unless we're pushing metadata
+        // elsewhere)?
+        // this function creates the HIF operations required to execute the
+        // operation and the doc comment above indicates this is generic
+        // across some operations: Send / SendLeaseRead / SendLeaseWrite
+        // the string names of these operations are passed to this
+        // function in the `func_name` variable
+        // this string is used to get something called `send` which is
+        // used below in the `Op::Call(send.id)` ...
+        // Q: what does `self.get_function(func_name, arg_count)?;` return?
+        // HiffyFunction that is found in the `self.functions` using the
+        // associated `get(name, nargs)` function
         if let Some(lease_size) = lease_size {
             ops.push(push(lease_size));
         }
@@ -1180,6 +1194,13 @@ impl<'a> HiffyContext<'a> {
 ///
 /// Returns an outer error if Hiffy communication fails, or an inner error
 /// if the Hiffy call returns an error code (formatted as a String).
+///
+/// NOTE: This function signature can only accept a single lease, either
+/// read or write. This limitation simplifies this code such that we don't
+/// need to figure out which lease provided by the caller should be
+/// associated with the leases expected by the idol operation. Supporting
+/// a single read and a single write lease should allow us to use the read
+/// / write attribute from the idol op metadata?
 pub fn hiffy_call(
     hubris: &HubrisArchive,
     core: &mut dyn Core,
@@ -1188,10 +1209,18 @@ pub fn hiffy_call(
     args: &[(&str, idol::IdolArgument)],
     lease: Option<HiffyLease>,
 ) -> Result<std::result::Result<humility::reflect::Value, String>> {
+    println!("hiffy_call before check_lease");
+    println!("idol op.operation: {:?}", op.operation);
+    panic!("fml");
     check_lease(op, lease.as_ref())?;
 
     let mut ops = vec![];
 
+    // this gets us an appropriately configured / sized payload
+    // the size of the Vec<u8> returned is calculated from the encoding
+    // and size of various IdolOperation arguments
+    // this may be relevant, however the `idol_call_ops_*` functions
+    // should be better understood before decisions are made
     let payload = op.payload(args)?;
     match lease.as_ref() {
         None => context.idol_call_ops(op, &payload, &mut ops)?,
@@ -1199,6 +1228,8 @@ pub fn hiffy_call(
         // HiffyLease::Read/Write is from the perspective of the host, but
         // idol_call_ops_read/write is from the perspective of the called
         // function.
+        //
+        // NOTE: how
         Some(HiffyLease::Read(n)) => context.idol_call_ops_write(
             op,
             &payload,
@@ -1214,6 +1245,7 @@ pub fn hiffy_call(
     }
     ops.push(Op::Done);
 
+    // get the data (Vec<u8>?) backing the writable lease
     let data = lease.as_ref().and_then(|lease| {
         if let HiffyLease::Write(d) = *lease {
             Some(d)
