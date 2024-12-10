@@ -376,7 +376,8 @@ fn debugmailboxcmd(context: &mut ExecutionContext) -> Result<()> {
                 .arg("sign")
                 .arg(key_name)
                 .arg("--kind=debug-authn-challenge")
-                .arg(format!("--debug-authn-beacon={beacon}"));
+                .arg(format!("--debug-authn-beacon={beacon}"))
+                .arg("--hash=sha256");
 
             if sshauth {
                 permslip.arg("--sshauth");
